@@ -18,23 +18,29 @@ jobs:
         run: |
           echo "Files in repo:"
           ls -la
+
           ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
+
           if [ -z "$ZIP_FILE" ]; then
             echo "ZIP file not found"
             exit 1
           fi
-          echo "ZIP_FILE=$ZIP_FILE" >> $GITHUB_ENV
+
+          echo "Found ZIP: $ZIP_FILE"
+          echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
 
       - name: Extract project
         run: |
           mkdir -p project
           unzip -q "$ZIP_FILE" -d project
-          echo "Extracted:"
-          find project -maxdepth 3 -type f | head -100
+
+          echo "Extracted files:"
+          find project -maxdepth 4 -type f | head -100
 
       - name: Find Android project root
         run: |
           SETTINGS=$(find project -type f -name "settings.gradle" | head -n 1)
+
           if [ -z "$SETTINGS" ]; then
             SETTINGS=$(find project -type f -name "settings.gradle.kts" | head -n 1)
           fi
@@ -45,8 +51,9 @@ jobs:
           fi
 
           ROOT=$(dirname "$SETTINGS")
-          echo "PROJECT_ROOT=$ROOT" >> $GITHUB_ENV
+
           echo "Android project root: $ROOT"
+          echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -67,13 +74,35 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      - name: Fix Java source
+        run: |
+          FILE="$PROJECT_ROOT/app/src/main/java/com/flybrain/mobile/FlyOverlayService.java"
+
+          if [ ! -f "$FILE" ]; then
+            echo "FlyOverlayService.java not found"
+            exit 1
+          fi
+
+          sed -i \
+            's/var p=getSharedPreferences/android.content.SharedPreferences p=getSharedPreferences/' \
+            "$FILE"
+
+          echo "Patched source:"
+          grep "SharedPreferences p" "$FILE"
+
       - name: Build APK
         run: |
           cd "$PROJECT_ROOT"
           gradle :app:assembleDebug --stacktrace
+
+      - name: Show APK
+        run: |
+          echo "APK files:"
+          find "$PROJECT_ROOT/app/build/outputs/apk" -type f -name "*.apk" -print
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: FlyBrainAndroid-APK
           path: ${{ env.PROJECT_ROOT }}/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
